@@ -69,17 +69,28 @@ There are two primary integration patterns available:
 
 ### 1. MCP Tool Integration
 
-Use this approach when your agent implements the Model Context Protocol and wants to integrate through the MCP endpoints.
+Use this approach when your agent implements the Model Context Protocol and wants to integrate through the MCP endpoints. The service offers two flavors of MCP tool integration:
+
+**MCP Protocol Endpoints:**
+
+- `/mcp/tools` (GET) - Standard MCP protocol endpoint
+- `/mcp/execute` (POST) - Standard MCP protocol endpoint
+
+**REST-style MCP Tool Endpoints:**
+
+- `/api/mcptools/tools` (GET) - REST-style alternative with the same functionality
+- `/api/mcptools/execute` (POST) - REST-style alternative with the same functionality
 
 **Benefits:**
 
 - Native MCP integration
 - Standardized tool execution
 - Simplified parameter passing
+- Choice between standard MCP protocol and REST-style endpoints
 
 ### 2. REST API Integration
 
-Use this approach when your agent doesn't implement MCP or requires direct control of the conversation lifecycle.
+Use this approach when your agent doesn't implement MCP or requires direct control of the conversation lifecycle through the dedicated conversation management endpoints.
 
 **Benefits:**
 
@@ -128,12 +139,21 @@ Cancels a scheduled conversation.
 ### MCP Integration Example
 
 ```http
-# Get MCP tools definition
+# Get MCP tools definition (MCP Protocol)
 GET /mcp/tools
 Authorization: Bearer {{token}}
 
-# Execute scheduleConversation tool
+# Alternative: Get MCP tools definition (REST API)
+GET /api/mcptools/tools
+Authorization: Bearer {{token}}
+
+# Execute scheduleConversation tool (MCP Protocol)
 POST /mcp/execute
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+# Alternative: Execute scheduleConversation tool (REST API)
+POST /api/mcptools/execute
 Content-Type: application/json
 Authorization: Bearer {{token}}
 
@@ -163,7 +183,85 @@ Authorization: Bearer {{token}}
 
 ## REST API Integration
 
-### Core Endpoints
+### MCP Tools via REST API
+
+The service provides REST API endpoints that mirror the MCP protocol endpoints but follow more standard RESTful conventions:
+
+#### 1. Get Available Tools
+
+```http
+GET /api/mcptools/tools
+Authorization: Bearer {{token}}
+
+# Response
+{
+  "tools": [
+    {
+      "name": "scheduleConversation",
+      "description": "Schedules a conversation for future delivery",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "conversationText": { "type": "string", "description": "The text content to be sent" },
+          "scheduledTime": { "type": "string", "description": "The time when the conversation should be delivered (ISO 8601 format)" },
+          "endpoint": { "type": "string", "description": "The endpoint where the conversation should be delivered" },
+          "method": { "type": "string", "description": "The HTTP method for the delivery (GET, POST, PUT, etc.)", "default": "POST" },
+          "additionalInfo": { "type": "string", "description": "Additional information about the conversation" }
+        },
+        "required": ["conversationText", "scheduledTime", "endpoint"]
+      }
+    },
+    {
+      "name": "getConversationStatus",
+      "description": "Gets the status of a scheduled conversation",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "conversationId": { "type": "string", "description": "The ID of the conversation" }
+        },
+        "required": ["conversationId"]
+      }
+    },
+    {
+      "name": "cancelConversation",
+      "description": "Cancels a scheduled conversation",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "conversationId": { "type": "string", "description": "The ID of the conversation to cancel" }
+        },
+        "required": ["conversationId"]
+      }
+    }
+  ]
+}
+```
+
+#### 2. Execute a Tool
+
+```http
+POST /api/mcptools/execute
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "name": "scheduleConversation",
+  "arguments": {
+    "conversationText": "This is a scheduled message",
+    "scheduledTime": "2023-05-01T15:00:00Z",
+    "endpoint": "https://your-agent-callback-url/api/receive",
+    "method": "POST",
+    "additionalInfo": "Context information for this conversation"
+  }
+}
+
+# Response
+{
+  "result": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+}
+```
+
+### Core Conversation Endpoints
 
 #### 1. Create a Conversation
 
@@ -357,7 +455,7 @@ app.post("/api/receive", (req, res) => {
 
 ### Complete MCP Integration Flow
 
-The following code demonstrates a complete implementation for an AI agent integrating with the MCP Scheduler service:
+The following code demonstrates a complete implementation for an AI agent integrating with the MCP Scheduler service using the standard MCP protocol endpoints:
 
 ```javascript
 class McpSchedulerClient {
@@ -493,6 +591,163 @@ async function scheduleFollowUp(userId, reminderText) {
   } catch (error) {
     console.error("Failed to schedule conversation:", error);
     // Implement retry logic or fallback
+    return null;
+  }
+}
+```
+
+### REST-style MCP Endpoints Integration
+
+The following code demonstrates how to use the alternative REST-style MCP endpoints:
+
+```javascript
+class McpSchedulerRestClient {
+  constructor(baseUrl, clientId, apiKey) {
+    this.baseUrl = baseUrl;
+    this.clientId = clientId;
+    this.apiKey = apiKey;
+    this.token = null;
+    this.tokenExpiry = null;
+  }
+
+  // Authenticate and get token (same as MCP client)
+  async authenticate() {
+    if (this.token && this.tokenExpiry > Date.now()) {
+      return this.token; // Use existing token
+    }
+
+    const response = await fetch(`${this.baseUrl}/api/auth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId: this.clientId,
+        apiKey: this.apiKey,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Authentication failed: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    this.token = data.token;
+    this.tokenExpiry = Date.now() + data.expiresIn * 1000 - 60000; // Buffer of 1 minute
+    return this.token;
+  }
+
+  // Get available tools
+  async getAvailableTools() {
+    const token = await this.authenticate();
+
+    const response = await fetch(`${this.baseUrl}/api/mcptools/tools`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get tools: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  // Execute MCP tool using REST-style endpoint
+  async executeTool(name, arguments) {
+    const token = await this.authenticate();
+
+    const response = await fetch(`${this.baseUrl}/api/mcptools/execute`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        name,
+        arguments,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Tool execution failed: ${response.statusText} - ${errorText}`
+      );
+    }
+
+    return response.json();
+  }
+
+  // Schedule a conversation
+  async scheduleConversation(
+    text,
+    scheduledTime,
+    endpoint,
+    method = "POST",
+    additionalInfo = null
+  ) {
+    const result = await this.executeTool("scheduleConversation", {
+      conversationText: text,
+      scheduledTime: scheduledTime.toISOString(),
+      endpoint,
+      method,
+      additionalInfo,
+    });
+
+    return result.result; // This is the conversation ID (notice the difference from MCP response)
+  }
+
+  // Get conversation status
+  async getConversationStatus(conversationId) {
+    const result = await this.executeTool("getConversationStatus", {
+      conversationId,
+    });
+
+    return result.result; // This is the status string (notice the difference from MCP response)
+  }
+
+  // Cancel conversation
+  async cancelConversation(conversationId) {
+    const result = await this.executeTool("cancelConversation", {
+      conversationId,
+    });
+
+    return result.result; // This is a boolean success value (notice the difference from MCP response)
+  }
+}
+
+// Usage example
+async function scheduleFollowUpUsingRestEndpoints(userId, reminderText) {
+  const client = new McpSchedulerRestClient(
+    "https://scheduler-api.example.com",
+    "ai-agent-client",
+    "your-api-key-here"
+  );
+
+  try {
+    // Schedule for 24 hours in the future
+    const scheduledTime = new Date();
+    scheduledTime.setHours(scheduledTime.getHours() + 24);
+
+    const conversationId = await client.scheduleConversation(
+      reminderText,
+      scheduledTime,
+      `https://your-agent-api.example.com/callback/${userId}`,
+      "POST",
+      JSON.stringify({ userId, contextType: "reminder" })
+    );
+
+    console.log(
+      `Scheduled conversation ${conversationId} for ${scheduledTime} using REST-style endpoint`
+    );
+
+    return conversationId;
+  } catch (error) {
+    console.error(
+      "Failed to schedule conversation using REST-style endpoint:",
+      error
+    );
     return null;
   }
 }
