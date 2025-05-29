@@ -1,0 +1,94 @@
+@baseUrl = http://localhost:5146
+@apiKey = McpScheduler_API_Key_For_Development_Purposes_Only
+@clientId = test-client
+
+### Get API Health Status
+GET {{baseUrl}}/health
+
+### Get Authentication Token
+# @name getToken
+POST {{baseUrl}}/api/auth/token
+Content-Type: application/json
+
+{
+  "clientId": "{{clientId}}",
+  "apiKey": "{{apiKey}}"
+}
+
+### Save the token from the previous request
+@authToken = {{getToken.response.body.token}}
+
+### Schedule a new conversation through API
+POST {{baseUrl}}/api/conversations
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+  "conversationText": "This is a scheduled message from the API",
+  "scheduledTime": "{{$datetime iso8601 1h}}",
+  "target": {
+    "endpoint": "https://webhook.site/your-uuid-here",
+    "method": "POST",
+    "headers": {
+      "X-Api-Key": "sample-key",
+      "Content-Type": "application/json"
+    }
+  }
+}
+
+### Get a conversation by ID (replace with actual ID)
+GET {{baseUrl}}/api/conversations/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{authToken}}
+
+### Cancel a scheduled conversation (replace with actual ID)
+DELETE {{baseUrl}}/api/conversations/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{authToken}}
+
+### MCP Tool Schema
+POST {{baseUrl}}/mcp/tools
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+  "toolType": "function"
+}
+
+### MCP Execute Tool - Schedule Conversation
+POST {{baseUrl}}/mcp/execute
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+  "toolId": "scheduleConversation",
+  "toolParameters": {
+    "conversationText": "This is a scheduled message from MCP",
+    "scheduledTime": "{{$datetime iso8601 1h}}",
+    "endpoint": "https://webhook.site/your-uuid-here",
+    "method": "POST",
+    "additionalInfo": "Test message from MCP client"
+  }
+}
+
+### MCP Execute Tool - Get Conversation Status (replace with actual ID)
+POST {{baseUrl}}/mcp/execute
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+  "toolId": "getConversationStatus",
+  "toolParameters": {
+    "conversationId": "00000000-0000-0000-0000-000000000000"
+  }
+}
+
+### MCP Execute Tool - Cancel Conversation (replace with actual ID)
+POST {{baseUrl}}/mcp/execute
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+  "toolId": "cancelConversation",
+  "toolParameters": {
+    "conversationId": "00000000-0000-0000-0000-000000000000"
+  }
+}
